@@ -2,229 +2,184 @@
 import { ref, onMounted, computed } from 'vue'
 
 interface User {
-  id: number
+  id?: number
   name: string
   email: string
-  password: string
+  password?: string
 }
 
-// 🔗 Django API base URL
+// 🔗 API
 const API_URL = 'http://127.0.0.1:8000/api/users/'
 
-// 🔸 Reactive variables
+// ================= STATE =================
 const users = ref<User[]>([])
-const newUser = ref<User>({ id: 0, name: '', email: '', password: '' })
+const newUser = ref<User>({ name: '', email: '', password: '' })
+
 const isEditing = ref(false)
 const editingId = ref<number | null>(null)
+
+const isLoading = ref(false)
+
 const message = ref('')
 const showMessage = ref(false)
 const messageType = ref<'success' | 'error' | 'info'>('success')
+
+// search
+const searchQuery = ref('')
+
+// confirm delete
 const confirmVisible = ref(false)
 const confirmUserId = ref<number | null>(null)
-const isLoading = ref(false)
-const searchQuery = ref('')
+
+// password
 const showPassword = ref(false)
-const passwordStrength = ref(0)
 
-// 🎨 Background images
-const images = ['/bg1.jpg', '/bg4.jpg', '/bg2.png', '/bg3.jpg']
-const currentImageIndex = ref(0)
-const currentImage = computed(() => images[currentImageIndex.value])
-
-// 📊 Filtered users based on search
+// ================= COMPUTED =================
 const filteredUsers = computed(() => {
   if (!searchQuery.value) return users.value
-  return users.value.filter(user => 
-    user.name.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchQuery.value.toLowerCase())
+
+  return users.value.filter(u =>
+    u.name.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
+    u.email.toLowerCase().includes(searchQuery.value.toLowerCase())
   )
 })
 
-// 💪 Password strength checker
-const checkPasswordStrength = (password: string) => {
-  let strength = 0
-  if (password.length >= 6) strength++
-  if (password.length >= 10) strength++
-  if (/[A-Z]/.test(password)) strength++
-  if (/[0-9]/.test(password)) strength++
-  if (/[^A-Za-z0-9]/.test(password)) strength++
-  return Math.min(strength, 4)
-}
-
-const updatePasswordStrength = () => {
-  passwordStrength.value = checkPasswordStrength(newUser.value.password)
-}
-
-const getStrengthText = () => {
-  if (passwordStrength.value === 0) return 'ضعيفة جداً'
-  if (passwordStrength.value === 1) return 'ضعيفة'
-  if (passwordStrength.value === 2) return 'متوسطة'
-  if (passwordStrength.value === 3) return 'جيدة'
-  return 'قوية جداً'
-}
-
-const getStrengthColor = () => {
-  if (passwordStrength.value <= 1) return '#ef4444'
-  if (passwordStrength.value === 2) return '#f59e0b'
-  if (passwordStrength.value === 3) return '#3b82f6'
-  return '#22c55e'
-}
-
-// 🌈 Auto change background
-onMounted(() => {
-  setInterval(() => {
-    currentImageIndex.value = (currentImageIndex.value + 1) % images.length
-  }, 15000)
-  fetchUsers()
-})
-
-// 🎯 Popup message
+// ================= POPUP =================
 const showPopup = (msg: string, type: 'success' | 'error' | 'info' = 'success') => {
   message.value = msg
   messageType.value = type
   showMessage.value = true
-  setTimeout(() => (showMessage.value = false), 2500)
+
+  setTimeout(() => {
+    showMessage.value = false
+  }, 2500)
 }
 
-// 🧩 Fetch all users
+// ================= FETCH USERS =================
 const fetchUsers = async () => {
   isLoading.value = true
+
   try {
     const res = await fetch(API_URL)
-    if (!res.ok) throw new Error('Failed to fetch users')
-    users.value = await res.json()
+    const data = await res.json()
+
+    console.log("API RESPONSE:", data)
+
+    // دعم كل أشكال الـ API
+    users.value = Array.isArray(data)
+      ? data
+      : data?.data || []
+
   } catch (err: any) {
-    showPopup(`⚠️ ${err.message}`, 'error')
+    showPopup(err.message || 'Failed to fetch users', 'error')
   } finally {
-    setTimeout(() => (isLoading.value = false), 500)
+    isLoading.value = false
   }
 }
 
-// ➕ Add user
+// ================= ADD USER =================
 const addUser = async () => {
-  if (!newUser.value.name || !newUser.value.email || !newUser.value.password) {
+  if (!newUser.value.name || !newUser.value.email) {
     showPopup('Please fill all fields', 'error')
     return
   }
-  
-  if (!isValidEmail(newUser.value.email)) {
-    showPopup('Please enter a valid email', 'error')
-    return
-  }
-  
-  if (newUser.value.password.length < 6) {
-    showPopup('Password must be at least 6 characters', 'error')
-    return
-  }
-  
+
   isLoading.value = true
+
   try {
     const res = await fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: newUser.value.name,
-        email: newUser.value.email,
-        password: newUser.value.password,
-      }),
+      body: JSON.stringify(newUser.value),
     })
 
     if (!res.ok) throw new Error('Failed to add user')
 
     await fetchUsers()
-    resetForm()
-    showPopup('✨ User added successfully!', 'success')
+
+    newUser.value = { name: '', email: '', password: '' }
+
+    showPopup('User added successfully', 'success')
+
   } catch (err: any) {
-    showPopup(`⚠️ ${err.message}`, 'error')
+    showPopup(err.message, 'error')
   } finally {
     isLoading.value = false
   }
 }
 
-// ✏️ Edit user
+// ================= EDIT =================
 const editUser = (user: User) => {
   isEditing.value = true
-  editingId.value = user.id
-  newUser.value = { ...user, password: '' } // Don't show password when editing
-  // Smooth scroll to form
-  document.querySelector('.form-container')?.scrollIntoView({ 
-    behavior: 'smooth', 
-    block: 'center' 
-  })
+  editingId.value = user.id || null
+
+  newUser.value = {
+    name: user.name,
+    email: user.email,
+    password: ''
+  }
 }
 
-// ♻️ Update user
+// ================= UPDATE =================
 const updateUser = async () => {
   if (!editingId.value) return
-  
+
   isLoading.value = true
+
   try {
-    const updateData: any = {
+    const payload: any = {
       name: newUser.value.name,
       email: newUser.value.email,
     }
-    
-    // Only send password if it's provided
+
     if (newUser.value.password) {
-      updateData.password = newUser.value.password
+      payload.password = newUser.value.password
     }
-    
+
     const res = await fetch(`${API_URL}${editingId.value}/`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updateData),
+      body: JSON.stringify(payload),
     })
 
     if (!res.ok) throw new Error('Failed to update user')
 
     await fetchUsers()
-    resetForm()
-    showPopup('🔄 User updated successfully!', 'success')
+
+    cancelEdit()
+
+    showPopup('User updated successfully', 'success')
+
   } catch (err: any) {
-    showPopup(`⚠️ ${err.message}`, 'error')
+    showPopup(err.message, 'error')
   } finally {
     isLoading.value = false
   }
 }
 
-// 🔄 Reset form
-const resetForm = () => {
-  isEditing.value = false
-  editingId.value = null
-  newUser.value = { id: 0, name: '', email: '', password: '' }
-  passwordStrength.value = 0
-  showPassword.value = false
-}
-
-// ❌ Cancel editing
-const cancelEdit = () => {
-  if (isEditing.value) {
-    resetForm()
-    showPopup('Edit cancelled', 'info')
-  }
-}
-
-// 🗑️ Delete user
+// ================= DELETE =================
 const deleteUser = async (id: number) => {
   isLoading.value = true
+
   try {
-    const res = await fetch(`${API_URL}${id}/`, { method: 'DELETE' })
+    const res = await fetch(`${API_URL}${id}/`, {
+      method: 'DELETE',
+    })
+
     if (!res.ok) throw new Error('Failed to delete user')
+
     await fetchUsers()
-    showPopup('🗑️ User deleted successfully!', 'success')
+
+    showPopup('User deleted', 'success')
+
   } catch (err: any) {
-    showPopup(`⚠️ ${err.message}`, 'error')
+    showPopup(err.message, 'error')
   } finally {
     isLoading.value = false
   }
 }
 
-// ✅ Email validation
-const isValidEmail = (email: string) => {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-}
-
-// 🔓 Confirmation modal
+// ================= CONFIRM =================
 const openConfirm = (id: number) => {
   confirmUserId.value = id
   confirmVisible.value = true
@@ -243,10 +198,18 @@ const cancelDelete = () => {
   confirmUserId.value = null
 }
 
-// 👁️ Toggle password visibility
-const togglePasswordVisibility = () => {
-  showPassword.value = !showPassword.value
+// ================= EDIT HELPERS =================
+const cancelEdit = () => {
+  isEditing.value = false
+  editingId.value = null
+  newUser.value = { name: '', email: '', password: '' }
 }
+
+// ================= INIT =================
+onMounted(() => {
+  console.log("MOUNTED WORKS")
+  fetchUsers()
+})
 </script>
 
 <template>
